@@ -233,3 +233,7 @@ func (n *Node) HandleAppendEntries(req *AppendEntriesReq, rsp *AppendEntriesRsp)
 	}
 	return nil
 }
+
+func (n *Node) GetHost() string {
+	return n.Members[n.Id].Host
+}

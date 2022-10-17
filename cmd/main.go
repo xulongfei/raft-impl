@@ -25,7 +25,7 @@ func main() {
 	if err := rpc.RegisterName("raft", node); err != nil {
 		log.Fatal(err)
 	}
-	lis, err := net.Listen("tcp", "127.0.0.1:9000")
+	lis, err := net.Listen("tcp", node.GetHost())
 	if err != nil {
 		log.Fatal(err)
 		return
