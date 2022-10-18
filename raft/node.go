@@ -25,6 +25,7 @@ type Node struct {
 	MatchIndex   []int
 	Members      Members
 	electionTime time.Time
+	fsm          *Fsm
 }
 
 func NewNode(id int, dir string, memberList string) (*Node, error) {
@@ -33,11 +34,15 @@ func NewNode(id int, dir string, memberList string) (*Node, error) {
 		return nil, err
 	}
 	n := &Node{
-		Id:       id,
-		Dir:      dir,
-		Members:  members,
-		Status:   follower,
-		VotedFor: -1,
+		Id:           id,
+		Dir:          dir,
+		Members:      members,
+		Status:       follower,
+		VotedFor:     -1,
+		electionTime: time.Now(),
+		fsm:          NewFsm(),
+		CommitIndex:  0,
+		LastApplied:  0,
 	}
 	n.load()
 	go n.loop()
@@ -58,6 +63,7 @@ func (n *Node) loop() {
 			elapsed := time.Now().Sub(n.electionTime)
 			log.Println("loop electionTimeout:", elapsed.String())
 			if elapsed >= electionTimeout {
+				n.Status = follower
 				n.beFollower()
 			}
 		case <-heartbeatTicker.C:
@@ -72,6 +78,15 @@ func (n *Node) LastLog() (int, int) {
 		return 0, 0
 	}
 	entry := n.Entries[len(n.Entries)-1]
+	return entry.Index, entry.Term
+}
+
+// PrevLog   index,term
+func (n *Node) PrevLog() (int, int) {
+	if len(n.Entries) <= 1 {
+		return 0, 0
+	}
+	entry := n.Entries[len(n.Entries)-2]
 	return entry.Index, entry.Term
 }
 
@@ -139,6 +154,9 @@ func (n *Node) beLeader() {
 	if n.Status != leader {
 		return
 	}
+	idx, _ := n.LastLog()
+	n.NextIndex = make([]int, idx+1, len(n.Members))
+	n.MatchIndex = make([]int, len(n.Members))
 	n.Members.WhenAll(n.reqAppendEntries, func(results map[int]interface{}) {
 		//复制日志
 	})
@@ -180,9 +198,13 @@ func (n *Node) reqAppendEntries(m *Member) interface{} {
 	}
 	defer conn.Close()
 	rsp := &AppendEntriesRsp{}
+	idx, term := n.PrevLog()
 	err = conn.Call("raft.HandleAppendEntries", &AppendEntriesReq{
-		Term:     n.CurrentTerm,
-		LeaderId: n.Id,
+		Term:         n.CurrentTerm,
+		LeaderId:     n.Id,
+		PrevLogIndex: idx,
+		PrevLogTerm:  term,
+		LeaderCommit: n.CommitIndex,
 	}, rsp)
 	if err != nil {
 		return nil
